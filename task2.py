@@ -116,24 +116,43 @@ def optimize_printing(print_jobs: List[Dict], constraints: Dict) -> Dict:
     """
 
     jobs = convert_jobs_to_object(print_jobs)
-    printer_constraints = convert_constraints_to_object(constraints)
-    jobs_by_priority = batch_jobs_by_priority(jobs)
+    c = convert_constraints_to_object(constraints)
 
-    all_groups: List[List[PrintJob]] = []
+    for j in jobs:
+        if j.volume > c.max_volume or c.max_items < 1:
+            raise ValueError(
+                f"Завдання {j.id} перевищує обмеження принтера і не може бути заплановане."
+            )
 
-    for priority in sorted(jobs_by_priority.keys()):
-        priority_jobs = jobs_by_priority[priority]
-        priority_jobs.sort(key=lambda j: j.print_time, reverse=True)
+    jobs_sorted = sorted(jobs, key=lambda j: j.priority)
+    n = len(jobs_sorted)
+    used = [False] * n
+    groups: List[List[PrintJob]] = []
 
-        priority_groups = group_jobs_for_printing(priority_jobs, printer_constraints)
+    i = 0
+    while i < n:
+        if used[i]:
+            i += 1
+            continue
 
-        all_groups.extend(priority_groups)
+        group: List[PrintJob] = [jobs_sorted[i]]
+        used[i] = True
+        group_volume = jobs_sorted[i].volume
 
-    print_order = [[job.id for job in group] for group in all_groups]
+        j = i + 1
+        while j < n and len(group) < c.max_items:
+            if not used[j] and group_volume + jobs_sorted[j].volume <= c.max_volume:
+                group.append(jobs_sorted[j])
+                used[j] = True
+                group_volume += jobs_sorted[j].volume
+            j += 1
+
+        groups.append(group)
+        i += 1
+
+    print_order = [job.id for group in groups for job in group]
     total_time = (
-        sum(max(job.print_time for job in group) for group in all_groups)
-        if all_groups
-        else 0
+        sum(max(job.print_time for job in group) for group in groups) if groups else 0
     )
 
     return {"print_order": print_order, "total_time": total_time}
